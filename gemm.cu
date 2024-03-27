@@ -6,17 +6,41 @@
 #include <cuda_runtime.h>
 
 #define N 256
-#define BLOCK_SIZE 16
+#define BLOCK_SIZE 32
 
-__global__ void matrixMul(float *a, float *b, float *c) {
+// Tiled matrix multiplication kernel using shared memory
+__global__ void matrixMulTiled(float *a, float *b, float *c) {
+    // Define shared memory for tiles of matrix 'a' and 'b'
+    __shared__ float tile_a[BLOCK_SIZE][BLOCK_SIZE];
+    __shared__ float tile_b[BLOCK_SIZE][BLOCK_SIZE];
+
+    // Calculate row and column indices
     int row = blockIdx.y * blockDim.y + threadIdx.y;
     int col = blockIdx.x * blockDim.x + threadIdx.x;
 
-    if (row < N && col < N) {
-        float sum = 0.0f;
-        for (int i = 0; i < N; ++i) {
-            sum += a[row * N + i] * b[i * N + col];
+    // Accumulator for the dot product
+    float sum = 0.0f;
+
+    // Iterate over tiles
+    for (int t = 0; t < N / BLOCK_SIZE; ++t) {
+        // Load tiles of matrix 'a' and 'b' into shared memory
+        tile_a[threadIdx.y][threadIdx.x] = a[row * N + t * BLOCK_SIZE + threadIdx.x];
+        tile_b[threadIdx.y][threadIdx.x] = b[(t * BLOCK_SIZE + threadIdx.y) * N + col];
+
+        // Synchronize threads to ensure all tiles are loaded
+        __syncthreads();
+
+        // Compute dot product of tiles
+        for (int k = 0; k < BLOCK_SIZE; ++k) {
+            sum += tile_a[threadIdx.y][k] * tile_b[k][threadIdx.x];
         }
+
+        // Synchronize threads before loading next tiles
+        __syncthreads();
+    }
+
+    // Write the result to global memory
+    if (row < N && col < N) {
         c[row * N + col] = sum;
     }
 }
@@ -58,7 +82,7 @@ int main() {
     cudaEventRecord(start);
 
     // Launch kernel
-    matrixMul<<<numBlocks, threadsPerBlock>>>(d_a, d_b, d_c);
+    matrixMulTiled<<<numBlocks, threadsPerBlock>>>(d_a, d_b, d_c);
 
     cudaEventRecord(stop);
     cudaEventSynchronize(stop);
