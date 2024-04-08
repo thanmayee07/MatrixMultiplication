@@ -16,8 +16,37 @@ typedef struct {
     double elapsed_time;
 } measurement_class;
 
+// Function to generate a random CSR matrix with large dimensions and increased density
+csr_matrix generate_large_random_csr_matrix(int rows, int cols, float density) {
+    csr_matrix matrix;
+    matrix.rows_count = rows;
+    matrix.cols_count = cols;
+    matrix.row_ptr = (int*)malloc((rows + 1) * sizeof(int));
+
+    // Generate random values for the matrix
+    srand(time(NULL));
+    int max_non_zeros = (int)(density * rows * cols);
+    matrix.non_zero_count = max_non_zeros;
+    matrix.values = (float*)malloc(max_non_zeros * sizeof(float));
+    matrix.col_indices = (int*)malloc(max_non_zeros * sizeof(int));
+
+    int current_index = 0;
+    matrix.row_ptr[0] = 0;
+    for (int i = 0; i < rows; ++i) {
+        int non_zeros_in_row = (int)(density * cols); // Determine number of non-zeros in this row
+        matrix.row_ptr[i + 1] = matrix.row_ptr[i] + non_zeros_in_row; // Update row_ptr
+        for (int j = 0; j < non_zeros_in_row; ++j) {
+            matrix.values[current_index] = (float)(rand() % 1000 + 1); // Random value between 1 and 1000
+            matrix.col_indices[current_index] = rand() % cols; // Random column index
+            ++current_index;
+        }
+    }
+
+    return matrix;
+}
+
+// Naive single-threaded CSR SpMV implementation
 measurement_class cpu_csr_spmv_single_thread_naive(const csr_matrix* matrix, float* x, float* y) {
-    // Fill the input vector x with appropriate values (for demonstration, we fill it with 1.0)
     for (int i = 0; i < matrix->cols_count; ++i) {
         x[i] = 1.0f;
     }
@@ -43,30 +72,13 @@ measurement_class cpu_csr_spmv_single_thread_naive(const csr_matrix* matrix, flo
 }
 
 int main() {
-    // Define matrix dimensions and allocate memory
-    csr_matrix matrix;
-    matrix.rows_count = 3;
-    matrix.cols_count = 3;
-    matrix.non_zero_count = 4;
-    matrix.values = (float*)malloc(matrix.non_zero_count * sizeof(float));
-    matrix.col_indices = (int*)malloc(matrix.non_zero_count * sizeof(int));
-    matrix.row_ptr = (int*)malloc((matrix.rows_count + 1) * sizeof(int));
+    // Define matrix dimensions and density
+    int rows = 10000; // Larger number of rows
+    int cols = 10000; // Larger number of columns
+    float density = 0.1; // Density of non-zero elements in the matrix (10%)
 
-    // Initialize matrix values (for demonstration)
-    matrix.values[0] = 1.0f;
-    matrix.values[1] = 2.0f;
-    matrix.values[2] = 3.0f;
-    matrix.values[3] = 4.0f;
-
-    matrix.col_indices[0] = 0;
-    matrix.col_indices[1] = 1;
-    matrix.col_indices[2] = 0;
-    matrix.col_indices[3] = 2;
-
-    matrix.row_ptr[0] = 0;
-    matrix.row_ptr[1] = 2;
-    matrix.row_ptr[2] = 3;
-    matrix.row_ptr[3] = 4;
+    // Generate a large random CSR matrix with increased density
+    csr_matrix matrix = generate_large_random_csr_matrix(rows, cols, density);
 
     // Allocate memory for vectors
     float* x = (float*)malloc(matrix.cols_count * sizeof(float));
