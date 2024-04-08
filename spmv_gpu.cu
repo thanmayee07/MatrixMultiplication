@@ -1,135 +1,136 @@
 %%cuda
 
 #include <stdio.h>
-#include <sys/time.h>
+#include <stdlib.h>
+#include <time.h>
 
-#define ITER 1000
+// Structure for CSR matrix
+typedef struct {
+    int rows_count;
+    int cols_count;
+    int non_zero_count;
+    float* values;
+    int* col_indices;
+    int* row_ptr;
+} csr_matrix;
 
-// Sparse Matrix-Vector Multiplication kernel for CSR format
-template <typename T>
-__global__ void spmv_csr_kernel(T *values, int *rowPtr, int *colIndices, T *x, T *y, int numRows) {
+// Function to generate a random CSR matrix
+csr_matrix generate_random_csr_matrix(int rows, int cols, float density) {
+    csr_matrix matrix;
+    matrix.rows_count = rows;
+    matrix.cols_count = cols;
+    matrix.row_ptr = (int*)malloc((rows + 1) * sizeof(int));
+
+    // Generate random values for the matrix
+    srand(time(NULL));
+    int max_non_zeros = (int)(density * rows * cols);
+    matrix.non_zero_count = max_non_zeros;
+    matrix.values = (float*)malloc(max_non_zeros * sizeof(float));
+    matrix.col_indices = (int*)malloc(max_non_zeros * sizeof(int));
+
+    int current_index = 0;
+    matrix.row_ptr[0] = 0;
+    for (int i = 0; i < rows; ++i) {
+        int non_zeros_in_row = (int)(density * cols); // Determine number of non-zeros in this row
+        matrix.row_ptr[i + 1] = matrix.row_ptr[i] + non_zeros_in_row; // Update row_ptr
+        for (int j = 0; j < non_zeros_in_row; ++j) {
+            matrix.values[current_index] = (float)(rand() % 1000 + 1); // Random value between 1 and 1000
+            matrix.col_indices[current_index] = rand() % cols; // Random column index
+            ++current_index;
+        }
+    }
+
+    return matrix;
+}
+
+// CUDA kernel for SpMV computation
+__global__ void csr_spmv_kernel(int rows_count, int* row_ptr, int* col_indices, float* values, float* x, float* y) {
     int row = blockIdx.x * blockDim.x + threadIdx.x;
-    
-    if (row < numRows) {
-        T dot = 0.0f;
-        int row_start = rowPtr[row];
-        int row_end = rowPtr[row + 1];
-        for (int i = row_start; i < row_end; ++i) {
-            dot += values[i] * x[colIndices[i]];
+
+    if (row < rows_count) {
+        float dot = 0.0f;
+        for (int j = row_ptr[row]; j < row_ptr[row + 1]; ++j) {
+            dot += values[j] * x[col_indices[j]];
         }
         y[row] = dot;
     }
 }
 
-// Main SpMV function
-template <typename T>
-void spmv_csr(T *values, int *rowPtr, int *colIndices, T *x, T *y, int numRows, int numCols, int nnz) {
-    int numThreadsPerBlock = 256;
-    int numBlocks = (numRows + numThreadsPerBlock - 1) / numThreadsPerBlock;
+// Function to perform SpMV on GPU and measure performance
+void gpu_csr_spmv_perf(const csr_matrix* matrix, const float* x, float* y) {
+    // Allocate memory on GPU
+    float *d_values, *d_x, *d_y;
+    int *d_col_indices, *d_row_ptr;
+    cudaMalloc((void**)&d_values, matrix->non_zero_count * sizeof(float));
+    cudaMalloc((void**)&d_col_indices, matrix->non_zero_count * sizeof(int));
+    cudaMalloc((void**)&d_row_ptr, (matrix->rows_count + 1) * sizeof(int));
+    cudaMalloc((void**)&d_x, matrix->cols_count * sizeof(float));
+    cudaMalloc((void**)&d_y, matrix->rows_count * sizeof(float));
 
-    spmv_csr_kernel<<<numBlocks, numThreadsPerBlock>>>(values, rowPtr, colIndices, x, y, numRows);
+    // Copy data to GPU
+    cudaMemcpy(d_values, matrix->values, matrix->non_zero_count * sizeof(float), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_col_indices, matrix->col_indices, matrix->non_zero_count * sizeof(int), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_row_ptr, matrix->row_ptr, (matrix->rows_count + 1) * sizeof(int), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_x, x, matrix->cols_count * sizeof(float), cudaMemcpyHostToDevice);
+
+    // Launch kernel
+    int threads_per_block = 256;
+    int blocks_per_grid = (matrix->rows_count + threads_per_block - 1) / threads_per_block;
+    csr_spmv_kernel<<<blocks_per_grid, threads_per_block>>>(matrix->rows_count, d_row_ptr, d_col_indices, d_values, d_x, d_y);
+
+    // Copy result back to CPU
+    cudaMemcpy(y, d_y, matrix->rows_count * sizeof(float), cudaMemcpyDeviceToHost);
+
+    // Free GPU memory
+    cudaFree(d_values);
+    cudaFree(d_col_indices);
+    cudaFree(d_row_ptr);
+    cudaFree(d_x);
+    cudaFree(d_y);
 }
 
 int main() {
-    // Define matrix dimensions and allocate memory
-    int numRows = 2;
-    int numCols = 2;
-    int nnz = 3;
+    // Define matrix dimensions and density
+    int rows = 10000; // Large number of rows
+    int cols = 10000; // Large number of columns
+    float density = 0.1; // Density of non-zero elements in the matrix (1%)
 
-    // Allocate memory for matrix in host
-    float *values_host = (float*)malloc(nnz * sizeof(float));
-    int *rowPtr_host = (int*)malloc((numRows + 1) * sizeof(int));
-    int *colIndices_host = (int*)malloc(nnz * sizeof(int));
+    // Generate a random CSR matrix
+    csr_matrix matrix = generate_random_csr_matrix(rows, cols, density);
 
-    // Allocate memory for vectors in host
-    float *x_host = (float*)malloc(numCols * sizeof(float));
-    float *y_host = (float*)malloc(numRows * sizeof(float));
+    // Allocate memory for input and output vectors
+    float* x = (float*)malloc(cols * sizeof(float));
+    float* y = (float*)malloc(rows * sizeof(float));
 
-    // Initialize matrix and vectors (for demonstration purposes)
-    values_host[0] = 1.0f;
-    values_host[1] = 2.0f;
-    values_host[2] = 3.0f;
-
-    rowPtr_host[0] = 0;
-    rowPtr_host[1] = 1;
-    rowPtr_host[2] = 3;
-
-    colIndices_host[0] = 0;
-    colIndices_host[1] = 1;
-    colIndices_host[2] = 0;
-
-    x_host[0] = 1.0f;
-    x_host[1] = 2.0f;
-
-    // Allocate memory for matrix and vectors in device
-    float *values_device;
-    int *rowPtr_device;
-    int *colIndices_device;
-    float *x_device;
-    float *y_device;
-    cudaMalloc(&values_device, nnz * sizeof(float));
-    cudaMalloc(&rowPtr_device, (numRows + 1) * sizeof(int));
-    cudaMalloc(&colIndices_device, nnz * sizeof(int));
-    cudaMalloc(&x_device, numCols * sizeof(float));
-    cudaMalloc(&y_device, numRows * sizeof(float));
-
-    // Copy matrix and vectors from host to device
-    cudaMemcpy(values_device, values_host, nnz * sizeof(float), cudaMemcpyHostToDevice);
-    cudaMemcpy(rowPtr_device, rowPtr_host, (numRows + 1) * sizeof(int), cudaMemcpyHostToDevice);
-    cudaMemcpy(colIndices_device, colIndices_host, nnz * sizeof(int), cudaMemcpyHostToDevice);
-    cudaMemcpy(x_device, x_host, numCols * sizeof(float), cudaMemcpyHostToDevice);
-
-    // Run SpMV and measure time
-    cudaEvent_t start, stop;
-    cudaEventCreate(&start);
-    cudaEventCreate(&stop);
-    float milliseconds = 0;
-    cudaEventRecord(start);
-    for (int i = 0; i < ITER; i++)
-        spmv_csr(values_device, rowPtr_device, colIndices_device, x_device, y_device, numRows, numCols, nnz);
-    cudaEventRecord(stop);
-    cudaEventSynchronize(stop);
-    cudaEventElapsedTime(&milliseconds, start, stop);
-
-    // Copy result vector from device to host
-    cudaMemcpy(y_host, y_device, numRows * sizeof(float), cudaMemcpyDeviceToHost);
-
-    // Check for CUDA errors
-    cudaError_t error = cudaGetLastError();
-    if (error != cudaSuccess) {
-        fprintf(stderr, "CUDA error: %s\n", cudaGetErrorString(error));
+    // Initialize input vector x 
+    for (int i = 0; i < cols; ++i) {
+        x[i] = 1.0f;
     }
 
-    // Calculate performance metrics
-    double gflop = 2 * (double) nnz / 1e9;
-    double gbs = ((nnz * sizeof(float)) + ((numRows + 1) * sizeof(int)) + (nnz * sizeof(int)) + (numCols * sizeof(float)) + (numRows * sizeof(float))) / (milliseconds / ITER) / 1e6;
-    double time_taken = (milliseconds / ITER) / 1000.0;
+    // Perform SpMV on GPU and measure performance
+    clock_t start_time = clock();
+    gpu_csr_spmv_perf(&matrix, x, y);
+    clock_t end_time = clock();
 
-    // Print result (for demonstration purposes)
-    printf("Result of SpMV operation:\n");
-    for (int i = 0; i < numRows; ++i) {
-        printf("%f\n", y_host[i]);
-    }
+    // Calculate elapsed time
+    double elapsed_seconds = ((double)(end_time - start_time)) / CLOCKS_PER_SEC;
 
-    // Print performance metrics
-    printf("\nPerformance Metrics:\n");
-    printf("Average time taken for SpMV is %f seconds\n", time_taken);
-    printf("Average GFLOP/s is %lf\n", gflop / time_taken);
-    printf("Average GB/s is %lf\n", gbs);
+    // Calculate total number of floating-point operations
+    double total_operations = (double)matrix.non_zero_count * 2; // Assuming one multiplication and one addition per non-zero element
 
-    // Free memory in device
-    cudaFree(values_device);
-    cudaFree(rowPtr_device);
-    cudaFree(colIndices_device);
-    cudaFree(x_device);
-    cudaFree(y_device);
+    // Calculate GFLOPS
+    double gflops = (total_operations / elapsed_seconds) / 1e9; // Divide by elapsed time in seconds and 1 billion
 
-    // Free memory in host
-    free(values_host);
-    free(rowPtr_host);
-    free(colIndices_host);
-    free(x_host);
-    free(y_host);
+    // Output performance metrics
+    printf("Elapsed Time: %f seconds\n", elapsed_seconds);
+    printf("GFLOPS: %f\n", gflops);
+
+    // Free memory
+    free(matrix.values);
+    free(matrix.col_indices);
+    free(matrix.row_ptr);
+    free(x);
+    free(y);
 
     return 0;
 }
