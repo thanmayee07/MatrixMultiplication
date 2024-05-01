@@ -42,29 +42,6 @@ csr_matrix generate_random_csr_matrix(int rows, int cols, float density) {
     return matrix;
 }
 
-// Function to generate a diagonal CSR matrix
-csr_matrix generate_diagonal_csr_matrix(int size) {
-    csr_matrix matrix;
-    matrix.rows_count = size;
-    matrix.cols_count = size;
-    matrix.non_zero_count = size;
-    matrix.values = (float*)malloc(size * sizeof(float));
-    matrix.col_indices = (int*)malloc(size * sizeof(int));
-    matrix.row_ptr = (int*)malloc((size + 1) * sizeof(int));
-
-    // Generate diagonal matrix with random values
-    srand(time(NULL));
-
-    for (int i = 0; i < size; ++i) {
-        matrix.values[i] = (float)rand() / RAND_MAX * 1000.0f; // Random value between 0 and 1000
-        matrix.col_indices[i] = i; // Diagonal element
-        matrix.row_ptr[i] = i; // Diagonal elements are always present
-    }
-    matrix.row_ptr[size] = size; // Last element in row_ptr
-
-    return matrix;
-}
-
 // Function to perform SpMV on CPU (single-threaded)
 void cpu_csr_spmv(const csr_matrix* matrix, const float* x, float* y) {
     for (int i = 0; i < matrix->rows_count; ++i) {
@@ -77,8 +54,8 @@ void cpu_csr_spmv(const csr_matrix* matrix, const float* x, float* y) {
 
 int main() {
     // Define matrix dimensions and density
-    int rows = 10000; // Large number of rows
-    int cols = 10000; // Large number of columns
+    int rows = 1 << 15; // 2^15
+    int cols = 1 << 15; // 2^15
     float density = 0.1; // Density of non-zero elements in the matrix (10%)
 
     // Generate a random CSR matrix
@@ -115,42 +92,6 @@ int main() {
     free(random_matrix.row_ptr);
     free(x);
     free(y_cpu_random);
-
-    // Generate a diagonal CSR matrix
-    int size = 10000; // Size of the diagonal matrix
-    csr_matrix diagonal_matrix = generate_diagonal_csr_matrix(size);
-
-    // Allocate memory for input and output vectors
-    float* x_diag = (float*)malloc(size * sizeof(float));
-    float* y_cpu_diag = (float*)malloc(size * sizeof(float));
-
-    // Check for memory allocation errors
-    if (!x_diag || !y_cpu_diag) {
-        fprintf(stderr, "Memory allocation error\n");
-        exit(EXIT_FAILURE);
-    }
-
-    // Initialize input vector x for diagonal matrix (for demonstration, fill it with 1.0)
-    for (int i = 0; i < size; ++i) {
-        x_diag[i] = 1.0f;
-    }
-
-    // Perform SpMV on CPU for diagonal matrix
-    printf("\nPerformance metrics for CPU (single-threaded) diagonal CSR matrix:\n");
-    clock_t start_time_diag = clock();
-    cpu_csr_spmv(&diagonal_matrix, x_diag, y_cpu_diag);
-    clock_t end_time_diag = clock();
-    double elapsed_time_diag = ((double)(end_time_diag - start_time_diag)) / CLOCKS_PER_SEC * 1000.0; // Convert to milliseconds
-
-    // Output performance metrics
-    printf("Elapsed Time: %f milliseconds\n", elapsed_time_diag);
-
-    // Free memory for diagonal matrix
-    free(diagonal_matrix.values);
-    free(diagonal_matrix.col_indices);
-    free(diagonal_matrix.row_ptr);
-    free(x_diag);
-    free(y_cpu_diag);
 
     return 0;
 }
