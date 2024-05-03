@@ -6,7 +6,6 @@
 
 // Function to perform matrix multiplication on CPU
 void matrixMul(float *a, float *b, float *c) {
-
     for (int row = 0; row < N; ++row) {
         for (int col = 0; col < N; ++col) {
             float sum = 0.0f;
@@ -27,15 +26,30 @@ int main() {
 
     // Allocate memory for matrices 'a', 'b', and 'c'
     a = (float *)malloc(size);
+    if (a == NULL) {
+        fprintf(stderr, "Memory allocation failed for matrix 'a'\n");
+        exit(EXIT_FAILURE);
+    }
     b = (float *)malloc(size);
+    if (b == NULL) {
+        fprintf(stderr, "Memory allocation failed for matrix 'b'\n");
+        free(a);
+        exit(EXIT_FAILURE);
+    }
     c = (float *)malloc(size);
+    if (c == NULL) {
+        fprintf(stderr, "Memory allocation failed for matrix 'c'\n");
+        free(a);
+        free(b);
+        exit(EXIT_FAILURE);
+    }
 
     // Initialize matrices 'a' and 'b'
     for (int i = 0; i < N; ++i) {
         for (int j = 0; j < N; ++j) {
             // Assign values to elements of matrices 'a' and 'b'
-            a[i * N + j] = i + j; 
-            b[i * N + j] = i - j; 
+            a[i * N + j] = i + j;
+            b[i * N + j] = i - j;
         }
     }
 
@@ -50,19 +64,6 @@ int main() {
 
     clock_t stop = clock(); // Record the stopping time
     double cpu_time = ((double)(stop - start)) / CLOCKS_PER_SEC * 1000.0; // Calculate the elapsed time in milliseconds
-    
-    // Calculate total FLOPs
-    unsigned long long flops = (unsigned long long)N * N * N * 2; // 2 FLOPs per element
-
-    // Convert execution time to seconds
-    float seconds = cpu_time / 1000.0f; // Assuming milliseconds is the measured execution time
-
-    // Calculate GFLOPS
-    float gflops = (float)flops / seconds / 1e9f;
-
-    // Print GFLOPS
-    printf("GFLOPS: %.2f\n", gflops);
-
 
     // Print the time taken by CPU for matrix multiplication
     printf("Time taken by CPU: %f milliseconds\n", cpu_time);
