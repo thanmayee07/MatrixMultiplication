@@ -54,8 +54,8 @@ void cpu_csr_spmv(const csr_matrix* matrix, const float* x, float* y) {
 
 int main() {
     // Define matrix dimensions and density
-    int rows = 1 << 15; // 2^15
-    int cols = 1 << 15; // 2^15
+    int rows = 256
+    int cols = 256
     float density = 0.1; // Density of non-zero elements in the matrix (10%)
 
     // Generate a random CSR matrix
