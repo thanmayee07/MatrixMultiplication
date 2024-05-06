@@ -3,7 +3,7 @@
 #include <time.h>
 #include <omp.h>
 
-#define N 4096
+#define N 256
 #define BLOCK_SIZE 32
 
 // Function to perform matrix multiplication using OpenMP for multi-threading
