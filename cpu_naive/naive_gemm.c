@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <time.h>
 
-#define N 1024 // Define the size of the square matrices
+#define N 256 // Define the size of the square matrices
 
 // Function to perform matrix multiplication on CPU
 void matrixMul(float *a, float *b, float *c) {
